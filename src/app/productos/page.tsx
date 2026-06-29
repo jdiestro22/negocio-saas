@@ -100,6 +100,7 @@ export default function ProductosPage() {
   }
 
   const guardar = async () => {
+    console.log('guardando...', { nombre, precio, empresaId })
     if (!nombre.trim()) return setError('El nombre es obligatorio')
     if (!precio || isNaN(Number(precio))) return setError('Ingresa un precio válido')
     if (!empresaId) return
