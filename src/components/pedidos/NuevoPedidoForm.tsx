@@ -2,23 +2,37 @@
 
 import { useState, useTransition, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import type { Cliente, Producto, PedidoItem, MetodoPago } from '@/lib/types'
+import type { Producto, MetodoPago } from '@/lib/types'
 
-// -------------------------------------------------------
-// Componente principal: Nuevo Pedido Rápido
-// -------------------------------------------------------
+type ClienteParcial = {
+  id: string
+  nombre: string
+  telefono?: string | null
+  direccion?: string | null
+  referencia?: string | null
+  distrito?: string | null
+}
+
+type ItemPedido = {
+  producto_id: string | null
+  nombre: string
+  cantidad: number
+  precio: number
+  descuento: number
+  subtotal: number
+}
+
 export function NuevoPedidoForm({ empresaId }: { empresaId: string }) {
   const supabase = createClient()
   const [isPending, startTransition] = useTransition()
 
-  // Estado del pedido
   const [clienteBusqueda, setClienteBusqueda] = useState('')
-  const [clienteSeleccionado, setClienteSeleccionado] = useState<Partial<Cliente> | null>(null)
-  const [clienteSugerencias, setClienteSugerencias] = useState<Partial<Cliente>[]>([])
+  const [clienteSeleccionado, setClienteSeleccionado] = useState<ClienteParcial | null>(null)
+  const [clienteSugerencias, setClienteSugerencias] = useState<ClienteParcial[]>([])
 
   const [productoBusqueda, setProductoBusqueda] = useState('')
   const [productoSugerencias, setProductoSugerencias] = useState<Producto[]>([])
-  const [items, setItems] = useState<PedidoItem[]>([])
+  const [items, setItems] = useState<ItemPedido[]>([])
 
   const [descuento, setDescuento] = useState(0)
   const [delivery, setDelivery] = useState(0)
@@ -27,9 +41,6 @@ export function NuevoPedidoForm({ empresaId }: { empresaId: string }) {
   const [exito, setExito] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // -------------------------------------------------------
-  // Búsqueda de clientes con debounce
-  // -------------------------------------------------------
   const buscarClientes = useCallback(async (q: string) => {
     if (q.length < 2) return setClienteSugerencias([])
     const { data } = await supabase
@@ -38,27 +49,21 @@ export function NuevoPedidoForm({ empresaId }: { empresaId: string }) {
       .eq('empresa_id', empresaId)
       .or(`nombre.ilike.%${q}%,telefono.ilike.%${q}%`)
       .limit(6)
-    setClienteSugerencias(data ?? [])
+    setClienteSugerencias((data ?? []) as ClienteParcial[])
   }, [supabase, empresaId])
 
-  // -------------------------------------------------------
-  // Búsqueda de productos
-  // -------------------------------------------------------
   const buscarProductos = useCallback(async (q: string) => {
     if (q.length < 1) return setProductoSugerencias([])
     const { data } = await supabase
       .from('productos')
-      .select('id, nombre, precio, precio_delivery, imagen_url, stock, tiene_stock, codigo')
+      .select('*')
       .eq('empresa_id', empresaId)
       .eq('es_activo', true)
       .or(`nombre.ilike.%${q}%,codigo.ilike.%${q}%`)
       .limit(8)
-    setProductoSugerencias(data ?? [])
+    setProductoSugerencias((data ?? []) as Producto[])
   }, [supabase, empresaId])
 
-  // -------------------------------------------------------
-  // Agregar producto al pedido
-  // -------------------------------------------------------
   const agregarProducto = (producto: Producto) => {
     setItems(prev => {
       const existe = prev.find(i => i.producto_id === producto.id)
@@ -75,7 +80,6 @@ export function NuevoPedidoForm({ empresaId }: { empresaId: string }) {
         precio: producto.precio,
         descuento: 0,
         subtotal: producto.precio,
-        producto,
       }]
     })
     setProductoBusqueda('')
@@ -94,19 +98,12 @@ export function NuevoPedidoForm({ empresaId }: { empresaId: string }) {
     setItems(prev => prev.filter((_, i) => i !== idx))
   }
 
-  // -------------------------------------------------------
-  // Totales
-  // -------------------------------------------------------
   const subtotal = items.reduce((acc, i) => acc + i.subtotal, 0)
   const total = subtotal - descuento + delivery
 
-  // -------------------------------------------------------
-  // Guardar pedido
-  // -------------------------------------------------------
   const guardar = () => {
     if (items.length === 0) return setError('Agrega al menos un producto')
     setError(null)
-
     startTransition(async () => {
       const { data: pedido, error: err } = await supabase
         .from('pedidos')
@@ -131,7 +128,6 @@ export function NuevoPedidoForm({ empresaId }: { empresaId: string }) {
 
       if (err || !pedido) return setError(err?.message ?? 'Error al guardar')
 
-      // Insertar items
       await supabase.from('pedido_items').insert(
         items.map(i => ({
           empresa_id: empresaId,
@@ -145,7 +141,6 @@ export function NuevoPedidoForm({ empresaId }: { empresaId: string }) {
         }))
       )
 
-      // Resetear
       setItems([])
       setClienteSeleccionado(null)
       setClienteBusqueda('')
@@ -157,9 +152,6 @@ export function NuevoPedidoForm({ empresaId }: { empresaId: string }) {
     })
   }
 
-  // -------------------------------------------------------
-  // Render
-  // -------------------------------------------------------
   return (
     <div className="max-w-2xl mx-auto p-4 space-y-4">
       {exito && (
@@ -173,7 +165,6 @@ export function NuevoPedidoForm({ empresaId }: { empresaId: string }) {
         </div>
       )}
 
-      {/* Cliente */}
       <section className="bg-white border border-gray-200 rounded-xl p-4">
         <h2 className="text-sm font-medium text-gray-900 mb-3">Cliente</h2>
         <div className="relative">
@@ -202,14 +193,8 @@ export function NuevoPedidoForm({ empresaId }: { empresaId: string }) {
             </ul>
           )}
         </div>
-        {clienteSeleccionado?.direccion && (
-          <p className="text-xs text-gray-500 mt-2">📍 {clienteSeleccionado.direccion}
-            {clienteSeleccionado.distrito && ` · ${clienteSeleccionado.distrito}`}
-          </p>
-        )}
       </section>
 
-      {/* Productos */}
       <section className="bg-white border border-gray-200 rounded-xl p-4">
         <h2 className="text-sm font-medium text-gray-900 mb-3">Productos</h2>
         <div className="relative mb-3">
@@ -226,78 +211,3 @@ export function NuevoPedidoForm({ empresaId }: { empresaId: string }) {
                 <li key={p.id}
                   className="px-3 py-2 text-sm cursor-pointer hover:bg-gray-50 flex justify-between"
                   onClick={() => agregarProducto(p)}
-                >
-                  <span>{p.nombre}</span>
-                  <span className="font-medium text-gray-900">S/ {p.precio.toFixed(2)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {items.length === 0 && (
-          <p className="text-sm text-gray-400 text-center py-4">Agrega productos al pedido</p>
-        )}
-
-        {items.map((item, idx) => (
-          <div key={idx} className="flex items-center gap-3 py-2 border-b border-gray-100 last:border-0">
-            <span className="flex-1 text-sm">{item.nombre}</span>
-            <div className="flex items-center gap-1">
-              <button onClick={() => cambiarCantidad(idx, item.cantidad - 1)}
-                className="w-6 h-6 rounded border border-gray-200 text-gray-500 text-xs hover:bg-gray-50">−</button>
-              <span className="w-8 text-center text-sm font-medium">{item.cantidad}</span>
-              <button onClick={() => cambiarCantidad(idx, item.cantidad + 1)}
-                className="w-6 h-6 rounded border border-gray-200 text-gray-500 text-xs hover:bg-gray-50">+</button>
-            </div>
-            <span className="text-sm font-medium w-20 text-right">S/ {item.subtotal.toFixed(2)}</span>
-            <button onClick={() => eliminarItem(idx)} className="text-gray-300 hover:text-red-400 text-xs">✕</button>
-          </div>
-        ))}
-      </section>
-
-      {/* Totales y configuración */}
-      <section className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">Descuento</label>
-            <input type="number" min="0" value={descuento}
-              onChange={e => setDescuento(Number(e.target.value))}
-              className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg" />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">Delivery</label>
-            <input type="number" min="0" value={delivery}
-              onChange={e => setDelivery(Number(e.target.value))}
-              className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg" />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">Método de pago</label>
-            <select value={metodoPago} onChange={e => setMetodoPago(e.target.value as MetodoPago)}
-              className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg">
-              <option value="efectivo">Efectivo</option>
-              <option value="yape">Yape</option>
-              <option value="plin">Plin</option>
-              <option value="transferencia">Transferencia</option>
-              <option value="tarjeta">Tarjeta</option>
-            </select>
-          </div>
-        </div>
-
-        <input type="text" placeholder="Observaciones (opcional)"
-          value={observaciones} onChange={e => setObservaciones(e.target.value)}
-          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
-
-        <div className="flex justify-between items-center pt-2 border-t border-gray-100">
-          <div>
-            <div className="text-xs text-gray-500">Subtotal: S/ {subtotal.toFixed(2)}</div>
-            <div className="text-lg font-semibold text-gray-900">Total: S/ {total.toFixed(2)}</div>
-          </div>
-          <button onClick={guardar} disabled={isPending || items.length === 0}
-            className="px-6 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-            {isPending ? 'Guardando...' : 'Registrar pedido'}
-          </button>
-        </div>
-      </section>
-    </div>
-  )
-}
