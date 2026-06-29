@@ -13,8 +13,8 @@ export function NuevoPedidoForm({ empresaId }: { empresaId: string }) {
 
   // Estado del pedido
   const [clienteBusqueda, setClienteBusqueda] = useState('')
-  const [clienteSeleccionado, setClienteSeleccionado] = useState<Cliente | null>(null)
-  const [clienteSugerencias, setClienteSugerencias] = useState<Cliente[]>([])
+  const [clienteSeleccionado, setClienteSeleccionado] = useState<Partial<Cliente> | null>(null)
+  const [clienteSugerencias, setClienteSugerencias] = useState<Partial<Cliente>[]>([])
 
   const [productoBusqueda, setProductoBusqueda] = useState('')
   const [productoSugerencias, setProductoSugerencias] = useState<Producto[]>([])
