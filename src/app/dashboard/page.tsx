@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useRouter } from 'next/navigation'
 
 type Stats = {
   ventas_hoy: number
@@ -15,22 +16,28 @@ type Stats = {
 
 export default function DashboardPage() {
   const supabase = createClient()
+  const router = useRouter()
   const [stats, setStats] = useState<Stats | null>(null)
   const [empresa, setEmpresa] = useState<string>('')
+  const [rol, setRol] = useState<string>('')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const cargar = async () => {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user) return router.push('/login')
 
       const { data: usuario } = await supabase
         .from('usuarios')
-        .select('empresa_id, nombre, empresas(nombre)')
+        .select('empresa_id, nombre, rol, empresas(nombre)')
         .eq('auth_user_id', user.id)
         .single()
 
-      if (!usuario?.empresa_id) {
+      if (!usuario) return router.push('/login')
+
+      if (usuario.rol) setRol(usuario.rol)
+
+      if (!usuario.empresa_id) {
         setEmpresa('Super Admin')
         setLoading(false)
         return
@@ -40,34 +47,59 @@ export default function DashboardPage() {
       setEmpresa(empresaNombre)
 
       const hoy = new Date().toISOString().split('T')[0]
-      const inicioMes = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()
+      const inicioMes = new Date(
+        new Date().getFullYear(),
+        new Date().getMonth(),
+        1
+      ).toISOString()
 
-      const [ventasHoy, ventasMes, pendientes, entregadosHoy, clientes, productos, gastosMes] =
-        await Promise.all([
-          supabase.from('pedidos').select('total')
-            .eq('empresa_id', usuario.empresa_id)
-            .eq('estado', 'entregado')
-            .gte('created_at', hoy),
-          supabase.from('pedidos').select('total')
-            .eq('empresa_id', usuario.empresa_id)
-            .eq('estado', 'entregado')
-            .gte('created_at', inicioMes),
-          supabase.from('pedidos').select('id', { count: 'exact' })
-            .eq('empresa_id', usuario.empresa_id)
-            .eq('estado', 'pendiente'),
-          supabase.from('pedidos').select('id', { count: 'exact' })
-            .eq('empresa_id', usuario.empresa_id)
-            .eq('estado', 'entregado')
-            .gte('created_at', hoy),
-          supabase.from('clientes').select('id', { count: 'exact' })
-            .eq('empresa_id', usuario.empresa_id),
-          supabase.from('productos').select('id', { count: 'exact' })
-            .eq('empresa_id', usuario.empresa_id)
-            .eq('es_activo', true),
-          supabase.from('gastos').select('monto')
-            .eq('empresa_id', usuario.empresa_id)
-            .gte('fecha', inicioMes.split('T')[0]),
-        ])
+      const [
+        ventasHoy,
+        ventasMes,
+        pendientes,
+        entregadosHoy,
+        clientes,
+        productos,
+        gastosMes,
+      ] = await Promise.all([
+        supabase
+          .from('pedidos')
+          .select('total')
+          .eq('empresa_id', usuario.empresa_id)
+          .eq('estado', 'entregado')
+          .gte('created_at', hoy),
+        supabase
+          .from('pedidos')
+          .select('total')
+          .eq('empresa_id', usuario.empresa_id)
+          .eq('estado', 'entregado')
+          .gte('created_at', inicioMes),
+        supabase
+          .from('pedidos')
+          .select('id', { count: 'exact' })
+          .eq('empresa_id', usuario.empresa_id)
+          .eq('estado', 'pendiente'),
+        supabase
+          .from('pedidos')
+          .select('id', { count: 'exact' })
+          .eq('empresa_id', usuario.empresa_id)
+          .eq('estado', 'entregado')
+          .gte('created_at', hoy),
+        supabase
+          .from('clientes')
+          .select('id', { count: 'exact' })
+          .eq('empresa_id', usuario.empresa_id),
+        supabase
+          .from('productos')
+          .select('id', { count: 'exact' })
+          .eq('empresa_id', usuario.empresa_id)
+          .eq('es_activo', true),
+        supabase
+          .from('gastos')
+          .select('monto')
+          .eq('empresa_id', usuario.empresa_id)
+          .gte('fecha', inicioMes.split('T')[0]),
+      ])
 
       setStats({
         ventas_hoy: (ventasHoy.data ?? []).reduce((a, p) => a + p.total, 0),
@@ -93,16 +125,61 @@ export default function DashboardPage() {
     )
   }
 
-  const tarjetas = stats ? [
-    { label: 'Ventas hoy',           valor: `S/ ${stats.ventas_hoy.toFixed(2)}`,          color: 'text-green-600' },
-    { label: 'Ventas del mes',        valor: `S/ ${stats.ventas_mes.toFixed(2)}`,           color: 'text-blue-600' },
-    { label: 'Pedidos pendientes',    valor: stats.pedidos_pendientes.toString(),            color: 'text-yellow-600' },
-    { label: 'Entregados hoy',        valor: stats.pedidos_entregados_hoy.toString(),        color: 'text-green-600' },
-    { label: 'Clientes registrados',  valor: stats.total_clientes.toString(),                color: 'text-gray-900' },
-    { label: 'Productos activos',     valor: stats.total_productos.toString(),               color: 'text-gray-900' },
-    { label: 'Gastos del mes',        valor: `S/ ${stats.gastos_mes.toFixed(2)}`,           color: 'text-red-600' },
-    { label: 'Ganancia estimada',     valor: `S/ ${(stats.ventas_mes - stats.gastos_mes).toFixed(2)}`, color: 'text-green-600' },
-  ] : []
+  const tarjetas = stats
+    ? [
+        {
+          label: 'Ventas hoy',
+          valor: `S/ ${stats.ventas_hoy.toFixed(2)}`,
+          color: 'text-green-600',
+        },
+        {
+          label: 'Ventas del mes',
+          valor: `S/ ${stats.ventas_mes.toFixed(2)}`,
+          color: 'text-blue-600',
+        },
+        {
+          label: 'Pedidos pendientes',
+          valor: stats.pedidos_pendientes.toString(),
+          color: 'text-yellow-600',
+        },
+        {
+          label: 'Entregados hoy',
+          valor: stats.pedidos_entregados_hoy.toString(),
+          color: 'text-green-600',
+        },
+        {
+          label: 'Clientes registrados',
+          valor: stats.total_clientes.toString(),
+          color: 'text-gray-900',
+        },
+        {
+          label: 'Productos activos',
+          valor: stats.total_productos.toString(),
+          color: 'text-gray-900',
+        },
+        {
+          label: 'Gastos del mes',
+          valor: `S/ ${stats.gastos_mes.toFixed(2)}`,
+          color: 'text-red-600',
+        },
+        {
+          label: 'Ganancia estimada',
+          valor: `S/ ${(stats.ventas_mes - stats.gastos_mes).toFixed(2)}`,
+          color: 'text-green-600',
+        },
+      ]
+    : []
+
+  const accesos = [
+    { label: 'Nuevo pedido', href: '/pedidos/nuevo', emoji: '🛒' },
+    { label: 'Productos',    href: '/productos',      emoji: '📦' },
+    { label: 'Clientes',     href: '/clientes',       emoji: '👥' },
+    { label: 'Pedidos',      href: '/pedidos',        emoji: '🧾' },
+    { label: 'Reportes',     href: '/reportes',       emoji: '📊' },
+    ...(rol === 'super_admin'
+      ? [{ label: 'Super Admin', href: '/super-admin', emoji: '⚙️' }]
+      : []),
+  ]
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -125,36 +202,31 @@ export default function DashboardPage() {
 
       <div className="p-6">
         {/* Tarjetas de estadísticas */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          {tarjetas.map((t, i) => (
-            <div key={i} className="bg-white border border-gray-200 rounded-xl p-4">
-              <div className="text-xs text-gray-500 mb-2">{t.label}</div>
-              <div className={`text-2xl font-semibold ${t.color}`}>{t.valor}</div>
-            </div>
-          ))}
-        </div>
+        {stats && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            {tarjetas.map((t, i) => (
+              <div key={i} className="bg-white border border-gray-200 rounded-xl p-4">
+                <div className="text-xs text-gray-500 mb-2">{t.label}</div>
+                <div className={`text-2xl font-semibold ${t.color}`}>{t.valor}</div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Accesos rápidos */}
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <h2 className="text-sm font-medium text-gray-900 mb-4">Accesos rápidos</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {[
-              { label: 'Nuevo pedido',  href: '/pedidos/nuevo',  emoji: '🛒' },
-              { label: 'Productos',     href: '/productos',       emoji: '📦' },
-              { label: 'Clientes',      href: '/clientes',        emoji: '👥' },
-              { label: 'Reportes',      href: '/reportes',        emoji: '📊' },
-            ].map((a, i) => (
-              <a key={i} href={a.href}
-                className="flex flex-col items-center justify-center p-4 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
-                <span className="text-2xl mb-2">{a.emoji}</span>
-                <span className="text-sm text-gray-700">{a.label}</span>
+            {accesos.map((a, i) => (
+              <a href={a.href} key={i}
+              className="flex flex-col items-center justify-center p-4 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
+              <span className="text-2xl mb-2">{a.emoji}</span>
+              <span className="text-sm text-gray-700">{a.label}</span>
               </a>
-            ))}
+))}
           </div>
         </div>
       </div>
     </div>
   )
 }
-
-
