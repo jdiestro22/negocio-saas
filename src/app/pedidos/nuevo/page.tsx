@@ -154,7 +154,7 @@ export default function NuevoPedidoPage() {
       .insert({
         empresa_id: empresaId,
         cliente_id: clienteSeleccionado?.id ?? null,
-        cliente_nombre: clienteSeleccionado?.nombre ?? clienteQuery || null,
+        cliente_nombre: (clienteSeleccionado?.nombre ?? clienteQuery) || null,
         cliente_telefono: telefono || null,
         cliente_direccion: tipoEntrega === 'delivery' ? direccion : null,
         cliente_referencia: tipoEntrega === 'delivery' ? referencia : null,
@@ -270,3 +270,119 @@ export default function NuevoPedidoPage() {
           <h2 className="text-sm font-medium text-gray-900">Productos</h2>
           <div className="relative">
             <input type="text" placeholder="Buscar producto..."
+              value={productoQuery}
+              onChange={e => { setProductoQuery(e.target.value); buscarProductos(e.target.value) }}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            {productoSugerencias.length > 0 && (
+              <ul className="absolute z-10 w-full bg-white border border-gray-200 rounded-lg mt-1 shadow-lg">
+                {productoSugerencias.map(p => (
+                  <li key={p.id} onClick={() => agregarProducto(p)}
+                    className="px-3 py-2.5 text-sm cursor-pointer hover:bg-gray-50 flex justify-between items-center">
+                    <div>
+                      <span className="font-medium">{p.nombre}</span>
+                      {p.categoria && <span className="text-gray-400 ml-2 text-xs">{p.categoria.nombre}</span>}
+                    </div>
+                    <span className="font-medium text-gray-900">
+                      S/ {(tipoEntrega === 'delivery' && p.precio_delivery ? p.precio_delivery : p.precio).toFixed(2)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {items.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-6">Agrega productos al pedido</p>
+          ) : (
+            <div className="space-y-2">
+              {items.map((item, idx) => (
+                <div key={idx} className="flex items-center gap-3 py-2 border-b border-gray-100 last:border-0">
+                  <span className="flex-1 text-sm text-gray-800">{item.nombre}</span>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => cambiarCantidad(idx, -1)}
+                      className="w-7 h-7 rounded-full border border-gray-200 text-gray-500 text-sm hover:bg-gray-50 flex items-center justify-center">−</button>
+                    <span className="w-6 text-center text-sm font-medium">{item.cantidad}</span>
+                    <button onClick={() => cambiarCantidad(idx, 1)}
+                      className="w-7 h-7 rounded-full border border-gray-200 text-gray-500 text-sm hover:bg-gray-50 flex items-center justify-center">+</button>
+                  </div>
+                  <span className="text-sm font-medium text-gray-900 w-20 text-right">S/ {item.subtotal.toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Totales */}
+        <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">Descuento (S/)</label>
+              <input type="number" min="0" value={descuento}
+                onChange={e => setDescuento(Number(e.target.value))}
+                className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            {tipoEntrega === 'delivery' && (
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Delivery (S/)</label>
+                <input type="number" min="0" value={costoDelivery}
+                  onChange={e => setCostoDelivery(Number(e.target.value))}
+                  className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            )}
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">Método de pago</label>
+              <select value={metodoPago} onChange={e => setMetodoPago(e.target.value as MetodoPago)}
+                className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="efectivo">Efectivo</option>
+                <option value="yape">Yape</option>
+                <option value="plin">Plin</option>
+                <option value="transferencia">Transferencia</option>
+                <option value="tarjeta">Tarjeta</option>
+              </select>
+            </div>
+          </div>
+
+          <input type="text" placeholder="Observaciones (ej: sin cebolla, extra ají...)"
+            value={observaciones} onChange={e => setObservaciones(e.target.value)}
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg p-3">
+              {error}
+            </div>
+          )}
+
+          {/* Resumen */}
+          <div className="border-t border-gray-100 pt-3 space-y-1">
+            <div className="flex justify-between text-sm text-gray-500">
+              <span>Subtotal</span><span>S/ {subtotal.toFixed(2)}</span>
+            </div>
+            {descuento > 0 && (
+              <div className="flex justify-between text-sm text-red-500">
+                <span>Descuento</span><span>− S/ {descuento.toFixed(2)}</span>
+              </div>
+            )}
+            {tipoEntrega === 'delivery' && (
+              <div className="flex justify-between text-sm text-gray-500">
+                <span>Delivery</span><span>S/ {costoDelivery.toFixed(2)}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-base font-semibold text-gray-900 pt-1">
+              <span>Total</span><span>S/ {total.toFixed(2)}</span>
+            </div>
+          </div>
+
+          <button onClick={guardar} disabled={guardando || items.length === 0}
+            className="w-full py-3 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+            {guardando ? 'Guardando...' : `Registrar pedido · S/ ${total.toFixed(2)}`}
+          </button>
+        </div>
+
+      </div>
+    </div>
+  )
+}
