@@ -10,18 +10,71 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [aviso, setAviso] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   const handleLogin = async () => {
     setLoading(true)
     setError(null)
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) {
+    setAviso(null)
+
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password })
+
+    if (authError || !authData.user) {
       setError('Email o contraseña incorrectos')
       setLoading(false)
       return
     }
-    router.push('/dashboard')
+
+    // Verificar el estado de la empresa
+    const { data: usuario } = await supabase
+      .from('usuarios')
+      .select('empresa_id, rol, empresas(nombre, estado, fecha_vencimiento)')
+      .eq('auth_user_id', authData.user.id)
+      .single()
+
+    // Super admin no tiene empresa, siempre puede entrar
+    if (!usuario?.empresa_id) {
+      router.push('/dashboard')
+      return
+    }
+
+    const empresa = usuario.empresas as any
+
+    if (empresa?.fecha_vencimiento) {
+      const hoy = new Date()
+      hoy.setHours(0, 0, 0, 0)
+      const vencimiento = new Date(empresa.fecha_vencimiento)
+      const diasRestantes = Math.ceil((vencimiento.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24))
+
+      // Si ya venció, bloquear el acceso
+      if (diasRestantes < 0 || empresa.estado === 'vencida') {
+        await supabase.auth.signOut()
+        setError(`Tu suscripción venció el ${vencimiento.toLocaleDateString('es-PE')}. Contacta al administrador para renovar tu plan.`)
+        setLoading(false)
+        return
+      }
+
+      // Si la empresa está suspendida manualmente
+      if (empresa.estado === 'suspendida') {
+        await supabase.auth.signOut()
+        setError('Tu cuenta está suspendida. Contacta al administrador.')
+        setLoading(false)
+        return
+      }
+
+      // Si faltan 3 días o menos, mostrar aviso (pero deja entrar)
+      if (diasRestantes <= 3 && diasRestantes >= 0) {
+        setAviso(
+          diasRestantes === 0
+            ? 'Tu suscripción vence hoy. Renueva pronto para evitar interrupciones.'
+            : `Tu suscripción vence en ${diasRestantes} día${diasRestantes > 1 ? 's' : ''}. Renueva pronto.`
+        )
+      }
+    }
+
+    setLoading(false)
+    setTimeout(() => router.push('/dashboard'), aviso ? 2500 : 0)
   }
 
   return (
@@ -38,6 +91,12 @@ export default function LoginPage() {
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg p-3 mb-4">
             {error}
+          </div>
+        )}
+
+        {aviso && (
+          <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 text-sm rounded-lg p-3 mb-4">
+            ⚠ {aviso}
           </div>
         )}
 

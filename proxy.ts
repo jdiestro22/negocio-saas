@@ -23,11 +23,35 @@ export async function proxy(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser()
 
-  const rutasProtegidas = ['/dashboard', '/pedidos', '/productos', '/clientes', '/super-admin']
+  const rutasProtegidas = ['/dashboard', '/pedidos', '/productos', '/clientes', '/super-admin', '/reportes']
   const estaEnRutaProtegida = rutasProtegidas.some(r => request.nextUrl.pathname.startsWith(r))
 
   if (!user && estaEnRutaProtegida) {
     return NextResponse.redirect(new URL('/login', request.url))
+  }
+
+  // Validar vencimiento de licencia en cada navegación
+  if (user && estaEnRutaProtegida) {
+    const { data: usuario } = await supabase
+      .from('usuarios')
+      .select('empresa_id, empresas(estado, fecha_vencimiento)')
+      .eq('auth_user_id', user.id)
+      .single()
+
+    if (usuario?.empresa_id) {
+      const empresa = usuario.empresas as any
+      if (empresa?.fecha_vencimiento) {
+        const hoy = new Date()
+        hoy.setHours(0, 0, 0, 0)
+        const vencimiento = new Date(empresa.fecha_vencimiento)
+        const vencida = vencimiento.getTime() < hoy.getTime()
+
+        if (vencida || empresa.estado === 'vencida' || empresa.estado === 'suspendida') {
+          await supabase.auth.signOut()
+          return NextResponse.redirect(new URL('/login?vencido=1', request.url))
+        }
+      }
+    }
   }
 
   if (user && request.nextUrl.pathname === '/login') {
