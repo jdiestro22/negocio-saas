@@ -13,6 +13,8 @@ type PedidoReporte = {
   estado: string
   created_at: string
   cliente_nombre: string | null
+  cliente_telefono: string | null
+  cliente_direccion: string | null
 }
 
 type ItemReporte = {
@@ -74,7 +76,7 @@ export default function ReportesPage() {
     // Pedidos entregados en el rango
     const { data: pedidosData } = await supabase
       .from('pedidos')
-      .select('id, numero, total, metodo_pago, estado, created_at, cliente_nombre')
+      .select('id, numero, total, metodo_pago, estado, created_at, cliente_nombre, cliente_telefono, cliente_direccion')
       .eq('empresa_id', empresaId)
       .eq('estado', 'entregado')
       .gte('created_at', fechaInicio)
@@ -145,12 +147,14 @@ export default function ReportesPage() {
 
     // Hoja 1: Resumen de pedidos
     const hojaPedidos = pedidos.map(p => ({
-      'N° Pedido': p.numero,
-      'Fecha': new Date(p.created_at).toLocaleDateString('es-PE'),
-      'Hora': new Date(p.created_at).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }),
-      'Cliente': p.cliente_nombre ?? 'Sin nombre',
-      'Método de pago': METODOS_LABEL[p.metodo_pago] ?? p.metodo_pago,
-      'Total': p.total,
+    'N° Pedido': p.numero,
+    'Fecha': new Date(p.created_at).toLocaleDateString('es-PE'),
+    'Hora': new Date(p.created_at).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }),
+    'Cliente': p.cliente_nombre ?? 'Sin nombre',
+    'Teléfono': p.cliente_telefono ?? '',
+    'Dirección': p.cliente_direccion ?? '',
+    'Método de pago': METODOS_LABEL[p.metodo_pago] ?? p.metodo_pago,
+    'Total': p.total,
     }))
     const ws1 = XLSX.utils.json_to_sheet(hojaPedidos)
     XLSX.utils.book_append_sheet(wb, ws1, 'Pedidos')
