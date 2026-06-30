@@ -11,6 +11,7 @@ type Empresa = {
   estado: string
   created_at: string
   plan_id: string | null
+  fecha_vencimiento: string | null
 }
 
 type Plan = {
@@ -28,7 +29,10 @@ export default function SuperAdminPage() {
   const [modalEmpresa, setModalEmpresa] = useState(false)
   const [modalUsuario, setModalUsuario] = useState(false)
   const [empresaSeleccionada, setEmpresaSeleccionada] = useState<Empresa | null>(null)
-
+  const [modalRenovar, setModalRenovar] = useState(false)
+  const [empresaRenovar, setEmpresaRenovar] = useState<Empresa | null>(null)
+  const [diasRenovacion, setDiasRenovacion] = useState('30')
+    
   // Formulario empresa
   const [empNombre, setEmpNombre] = useState('')
   const [empTipo, setEmpTipo] = useState('Restaurante')
@@ -64,7 +68,7 @@ export default function SuperAdminPage() {
   const cargarDatos = async () => {
     setLoading(true)
     const [{ data: emps }, { data: pls }] = await Promise.all([
-      supabase.from('empresas').select('id, nombre, tipo_negocio, estado, created_at, plan_id').order('created_at', { ascending: false }),
+      supabase.from('empresas').select('id, nombre, tipo_negocio, estado, created_at, plan_id, fecha_vencimiento').order('created_at', { ascending: false }),
       supabase.from('planes').select('id, nombre').order('orden'),
     ])
     setEmpresas((emps ?? []) as Empresa[])
@@ -151,6 +155,44 @@ export default function SuperAdminPage() {
     cargarDatos()
   }
 
+  const abrirModalRenovar = (empresa: Empresa) => {
+  setEmpresaRenovar(empresa)
+  setDiasRenovacion('30')
+  setModalRenovar(true)
+  }
+
+  const renovarLicencia = async () => {
+  if (!empresaRenovar) return
+  setGuardando(true)
+
+  const dias = Number(diasRenovacion) || 30
+  const hoy = new Date()
+  const nuevaFecha = new Date(hoy.setDate(hoy.getDate() + dias))
+
+  await supabase
+    .from('empresas')
+    .update({
+      fecha_vencimiento: nuevaFecha.toISOString().split('T')[0],
+      estado: 'activa',
+    })
+    .eq('id', empresaRenovar.id)
+
+  // Registrar el pago en el historial
+  await supabase.from('pagos').insert({
+    empresa_id: empresaRenovar.id,
+    monto: 0,
+    metodo: 'transferencia',
+    fecha_pago: new Date().toISOString().split('T')[0],
+    notas: `Renovación de ${dias} días`,
+  })
+
+  setGuardando(false)
+  setModalRenovar(false)
+  setExito(`Licencia de ${empresaRenovar.nombre} renovada hasta ${nuevaFecha.toLocaleDateString('es-PE')}`)
+  setTimeout(() => setExito(null), 4000)
+  cargarDatos()
+  }
+
   const ESTADOS: Record<string, { label: string; color: string; bg: string }> = {
     activa:     { label: 'Activa',      color: '#1D9E75', bg: '#D4F5E9' },
     prueba:     { label: 'Prueba',      color: '#EF9F27', bg: '#FEF3CD' },
@@ -200,15 +242,29 @@ export default function SuperAdminPage() {
                     </span>
                   </div>
                   <div className="flex items-center gap-3 mt-1">
-                    {e.tipo_negocio && <span className="text-xs text-gray-400">{e.tipo_negocio}</span>}
-                    <span className="text-xs text-gray-300">·</span>
-                    <span className="text-xs text-gray-400">
-                      Creada {new Date(e.created_at).toLocaleDateString('es-PE')}
-                    </span>
-                  </div>
+                     {e.tipo_negocio && <span className="text-xs text-gray-400">{e.tipo_negocio}</span>}
+                     <span className="text-xs text-gray-300">·</span>
+                     <span className="text-xs text-gray-400">
+                     Creada {new Date(e.created_at).toLocaleDateString('es-PE')}
+                     </span>
+                     {e.fecha_vencimiento && (
+                     <>
+                     <span className="text-xs text-gray-300">·</span>
+                     <span className={`text-xs ${
+                     new Date(e.fecha_vencimiento) < new Date() ? 'text-red-500 font-medium' : 'text-gray-400'
+                     }`}>
+                     Vence {new Date(e.fecha_vencimiento).toLocaleDateString('es-PE')}
+                     </span>
+                     </>
+                    )}
+                    </div>
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <button onClick={() => abrirModalRenovar(e)}
+                    className="text-xs px-3 py-1.5 bg-green-50 text-green-600 rounded-lg hover:bg-green-100">
+                    Renovar
+                  </button>
                   <button onClick={() => abrirModalUsuario(e)}
                     className="text-xs px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100">
                     + Usuario
@@ -320,7 +376,60 @@ export default function SuperAdminPage() {
                 </button>
                 <button onClick={crearUsuario} disabled={guardando}
                   className="flex-1 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50">
-                  {guardando ? 'Creando...' : 'Crear usuario'}
+{guardando ? 'Creando...' : 'Crear usuario'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal renovar licencia */}
+      {modalRenovar && empresaRenovar && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-base font-semibold text-gray-900">Renovar licencia</h2>
+              <button onClick={() => setModalRenovar(false)} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+            </div>
+            <p className="text-xs text-gray-400 mb-5">{empresaRenovar.nombre}</p>
+
+            {empresaRenovar.fecha_vencimiento && (
+              <div className="bg-gray-50 rounded-lg p-3 mb-4 text-sm text-gray-600">
+                Vencimiento actual: {new Date(empresaRenovar.fecha_vencimiento).toLocaleDateString('es-PE')}
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Extender por (días)</label>
+                <div className="flex gap-2">
+                  {['30', '90', '180', '365'].map(d => (
+                    <button key={d} onClick={() => setDiasRenovacion(d)}
+                      className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        diasRenovacion === d ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}>
+                      {d}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-700">
+                Nueva fecha de vencimiento: {
+                  new Date(new Date().setDate(new Date().getDate() + Number(diasRenovacion || 30)))
+                    .toLocaleDateString('es-PE')
+                }
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button onClick={() => setModalRenovar(false)}
+                  className="flex-1 py-2.5 border border-gray-200 text-gray-600 text-sm rounded-lg hover:bg-gray-50">
+                  Cancelar
+                </button>
+                <button onClick={renovarLicencia} disabled={guardando}
+                  className="flex-1 py-2.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50">
+                  {guardando ? 'Renovando...' : 'Confirmar renovación'}
                 </button>
               </div>
             </div>
