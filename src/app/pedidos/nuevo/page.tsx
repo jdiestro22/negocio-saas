@@ -18,7 +18,7 @@ type Producto = {
   nombre: string
   precio: number
   precio_delivery: number | null
-  categoria?: { nombre: string }
+  categorias?: { nombre: string } | null
 }
 
 type Item = {
@@ -63,7 +63,6 @@ export default function NuevoPedidoPage() {
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Cargar empresa del usuario
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
@@ -78,7 +77,6 @@ export default function NuevoPedidoPage() {
     init()
   }, [])
 
-  // Buscar clientes
   const buscarClientes = useCallback(async (q: string) => {
     if (!empresaId || q.length < 2) return setClienteSugerencias([])
     const { data } = await supabase
@@ -100,7 +98,6 @@ export default function NuevoPedidoPage() {
     setClienteSugerencias([])
   }
 
-  // Buscar productos
   const buscarProductos = useCallback(async (q: string) => {
     if (!empresaId || q.length < 1) return setProductoSugerencias([])
     const { data } = await supabase
@@ -136,12 +133,10 @@ export default function NuevoPedidoPage() {
     )
   }
 
-  // Totales
   const subtotal = items.reduce((a, i) => a + i.subtotal, 0)
   const deliveryCosto = tipoEntrega === 'delivery' ? costoDelivery : 0
   const total = subtotal - descuento + deliveryCosto
 
-  // Guardar pedido
   const guardar = async () => {
     if (items.length === 0) return setError('Agrega al menos un producto')
     if (tipoEntrega === 'delivery' && !direccion) return setError('Ingresa la dirección de entrega')
@@ -149,12 +144,56 @@ export default function NuevoPedidoPage() {
     setError(null)
     setGuardando(true)
 
+    // Buscar o crear cliente automáticamente si hay teléfono o dirección
+    let clienteId = clienteSeleccionado?.id ?? null
+
+    if (!clienteId && (telefono.trim() || direccion.trim())) {
+      const nombreCliente = clienteQuery.trim() || 'Sin nombre'
+
+      if (telefono.trim()) {
+        const { data: clienteExistente } = await supabase
+          .from('clientes')
+          .select('id')
+          .eq('empresa_id', empresaId)
+          .eq('telefono', telefono.trim())
+          .single()
+
+        if (clienteExistente) {
+          clienteId = clienteExistente.id
+          if (direccion.trim()) {
+            await supabase.from('clientes').update({
+              direccion: direccion.trim() || null,
+              referencia: referencia.trim() || null,
+              distrito: distrito.trim() || null,
+            }).eq('id', clienteId)
+          }
+        }
+      }
+
+      if (!clienteId) {
+        const { data: nuevoCliente } = await supabase
+          .from('clientes')
+          .insert({
+            empresa_id: empresaId,
+            nombre: nombreCliente,
+            telefono: telefono.trim() || null,
+            direccion: direccion.trim() || null,
+            referencia: referencia.trim() || null,
+            distrito: distrito.trim() || null,
+          })
+          .select('id')
+          .single()
+
+        if (nuevoCliente) clienteId = nuevoCliente.id
+      }
+    }
+
     const { data: pedido, error: err } = await supabase
       .from('pedidos')
       .insert({
         empresa_id: empresaId,
-        cliente_id: clienteSeleccionado?.id ?? null,
-        cliente_nombre: (clienteSeleccionado?.nombre ?? clienteQuery) || null,
+        cliente_id: clienteId,
+        cliente_nombre: (clienteSeleccionado?.nombre ?? clienteQuery.trim()) || null,
         cliente_telefono: telefono || null,
         cliente_direccion: tipoEntrega === 'delivery' ? direccion : null,
         cliente_referencia: tipoEntrega === 'delivery' ? referencia : null,
@@ -194,7 +233,6 @@ export default function NuevoPedidoPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Topbar */}
       <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center gap-4">
         <button onClick={() => router.push('/pedidos')} className="text-gray-400 hover:text-gray-600">←</button>
         <h1 className="text-lg font-semibold text-gray-900">Nuevo pedido</h1>
@@ -202,7 +240,6 @@ export default function NuevoPedidoPage() {
 
       <div className="max-w-2xl mx-auto p-4 space-y-4">
 
-        {/* Tipo de entrega */}
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <div className="flex gap-2">
             {(['local', 'delivery'] as TipoEntrega[]).map(t => (
@@ -218,11 +255,12 @@ export default function NuevoPedidoPage() {
           </div>
         </div>
 
-        {/* Cliente */}
         <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
           <h2 className="text-sm font-medium text-gray-900">Cliente</h2>
           <div className="relative">
-            <input type="text" placeholder="Buscar cliente por nombre o teléfono..."
+            <input
+              type="text"
+              placeholder="Buscar cliente por nombre o teléfono..."
               value={clienteQuery}
               onChange={e => { setClienteQuery(e.target.value); setClienteSeleccionado(null); buscarClientes(e.target.value) }}
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -240,24 +278,36 @@ export default function NuevoPedidoPage() {
             )}
           </div>
 
-          <input type="text" placeholder="Teléfono"
-            value={telefono} onChange={e => setTelefono(e.target.value)}
+          <input
+            type="text"
+            placeholder="Teléfono"
+            value={telefono}
+            onChange={e => setTelefono(e.target.value)}
             className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
 
           {tipoEntrega === 'delivery' && (
             <>
-              <input type="text" placeholder="Dirección *"
-                value={direccion} onChange={e => setDireccion(e.target.value)}
+              <input
+                type="text"
+                placeholder="Dirección *"
+                value={direccion}
+                onChange={e => setDireccion(e.target.value)}
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <div className="grid grid-cols-2 gap-2">
-                <input type="text" placeholder="Referencia"
-                  value={referencia} onChange={e => setReferencia(e.target.value)}
+                <input
+                  type="text"
+                  placeholder="Referencia"
+                  value={referencia}
+                  onChange={e => setReferencia(e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-                <input type="text" placeholder="Distrito"
-                  value={distrito} onChange={e => setDistrito(e.target.value)}
+                <input
+                  type="text"
+                  placeholder="Distrito"
+                  value={distrito}
+                  onChange={e => setDistrito(e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -265,11 +315,12 @@ export default function NuevoPedidoPage() {
           )}
         </div>
 
-        {/* Productos */}
         <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
           <h2 className="text-sm font-medium text-gray-900">Productos</h2>
           <div className="relative">
-            <input type="text" placeholder="Buscar producto..."
+            <input
+              type="text"
+              placeholder="Buscar producto..."
               value={productoQuery}
               onChange={e => { setProductoQuery(e.target.value); buscarProductos(e.target.value) }}
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -281,7 +332,7 @@ export default function NuevoPedidoPage() {
                     className="px-3 py-2.5 text-sm cursor-pointer hover:bg-gray-50 flex justify-between items-center">
                     <div>
                       <span className="font-medium">{p.nombre}</span>
-                      {p.categoria && <span className="text-gray-400 ml-2 text-xs">{p.categoria.nombre}</span>}
+                      {p.categorias && <span className="text-gray-400 ml-2 text-xs">{p.categorias.nombre}</span>}
                     </div>
                     <span className="font-medium text-gray-900">
                       S/ {(tipoEntrega === 'delivery' && p.precio_delivery ? p.precio_delivery : p.precio).toFixed(2)}
@@ -313,12 +364,14 @@ export default function NuevoPedidoPage() {
           )}
         </div>
 
-        {/* Totales */}
         <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="text-xs text-gray-500 block mb-1">Descuento (S/)</label>
-              <input type="number" min="0" value={descuento}
+              <input
+                type="number"
+                min="0"
+                value={descuento}
                 onChange={e => setDescuento(Number(e.target.value))}
                 className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
@@ -326,7 +379,10 @@ export default function NuevoPedidoPage() {
             {tipoEntrega === 'delivery' && (
               <div>
                 <label className="text-xs text-gray-500 block mb-1">Delivery (S/)</label>
-                <input type="number" min="0" value={costoDelivery}
+                <input
+                  type="number"
+                  min="0"
+                  value={costoDelivery}
                   onChange={e => setCostoDelivery(Number(e.target.value))}
                   className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
@@ -334,8 +390,11 @@ export default function NuevoPedidoPage() {
             )}
             <div>
               <label className="text-xs text-gray-500 block mb-1">Método de pago</label>
-              <select value={metodoPago} onChange={e => setMetodoPago(e.target.value as MetodoPago)}
-                className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <select
+                value={metodoPago}
+                onChange={e => setMetodoPago(e.target.value as MetodoPago)}
+                className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
                 <option value="efectivo">Efectivo</option>
                 <option value="yape">Yape</option>
                 <option value="plin">Plin</option>
@@ -345,8 +404,11 @@ export default function NuevoPedidoPage() {
             </div>
           </div>
 
-          <input type="text" placeholder="Observaciones (ej: sin cebolla, extra ají...)"
-            value={observaciones} onChange={e => setObservaciones(e.target.value)}
+          <input
+            type="text"
+            placeholder="Observaciones (ej: sin cebolla, extra ají...)"
+            value={observaciones}
+            onChange={e => setObservaciones(e.target.value)}
             className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
 
@@ -356,7 +418,6 @@ export default function NuevoPedidoPage() {
             </div>
           )}
 
-          {/* Resumen */}
           <div className="border-t border-gray-100 pt-3 space-y-1">
             <div className="flex justify-between text-sm text-gray-500">
               <span>Subtotal</span><span>S/ {subtotal.toFixed(2)}</span>
@@ -376,8 +437,11 @@ export default function NuevoPedidoPage() {
             </div>
           </div>
 
-          <button onClick={guardar} disabled={guardando || items.length === 0}
-            className="w-full py-3 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+          <button
+            onClick={guardar}
+            disabled={guardando || items.length === 0}
+            className="w-full py-3 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
             {guardando ? 'Guardando...' : `Registrar pedido · S/ ${total.toFixed(2)}`}
           </button>
         </div>
